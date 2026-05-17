@@ -10,10 +10,13 @@ static NSString *const FVSelectedVideoPath = @"/var/mobile/Media/VCam/video.mp4"
 static NSString *const FVStorageDirectory = @"/var/mobile/Media/VCam";
 static NSString *const FVCameraRollDirectory = @"/var/mobile/Media/DCIM/100APPLE";
 
-static BOOL gFrontCameraActive = NO;
+static BOOL gCameraActive = NO;
 static BOOL gReloadVideo = YES;
 static NSTimeInterval gVolumeUpTime = 0;
 static NSTimeInterval gVolumeDownTime = 0;
+static AVPlayer *gPreviewPlayer = nil;
+static AVPlayerLayer *gPreviewPlayerLayer = nil;
+static NSString *gPreviewVideoPath = nil;
 
 static UIViewController *FVTopViewController(void) {
     UIWindow *keyWindow = nil;
@@ -98,7 +101,69 @@ static BOOL FVUseVideo(NSString *sourcePath) {
                                                     toPath:FVSelectedVideoPath
                                                      error:nil];
     gReloadVideo = YES;
+    gPreviewVideoPath = nil;
     return ok;
+}
+
+static BOOL FVHasSelectedVideo(void) {
+    return [NSFileManager.defaultManager fileExistsAtPath:FVSelectedVideoPath];
+}
+
+static void FVEnsurePreviewPlayer(void) {
+    if (!FVHasSelectedVideo()) {
+        [gPreviewPlayer pause];
+        [gPreviewPlayerLayer removeFromSuperlayer];
+        gPreviewPlayer = nil;
+        gPreviewPlayerLayer = nil;
+        gPreviewVideoPath = nil;
+        return;
+    }
+
+    if (gPreviewPlayer != nil && [gPreviewVideoPath isEqualToString:FVSelectedVideoPath]) {
+        return;
+    }
+
+    gPreviewVideoPath = [FVSelectedVideoPath copy];
+    NSURL *url = [NSURL fileURLWithPath:FVSelectedVideoPath];
+    AVPlayerItem *item = [AVPlayerItem playerItemWithURL:url];
+    gPreviewPlayer = [AVPlayer playerWithPlayerItem:item];
+    gPreviewPlayer.actionAtItemEnd = AVPlayerActionAtItemEndNone;
+    gPreviewPlayerLayer = [AVPlayerLayer playerLayerWithPlayer:gPreviewPlayer];
+    gPreviewPlayerLayer.videoGravity = AVLayerVideoGravityResizeAspectFill;
+
+    [[NSNotificationCenter defaultCenter] addObserverForName:AVPlayerItemDidPlayToEndTimeNotification
+                                                      object:item
+                                                       queue:NSOperationQueue.mainQueue
+                                                  usingBlock:^(__unused NSNotification *note) {
+                                                      [gPreviewPlayer seekToTime:kCMTimeZero];
+                                                      [gPreviewPlayer play];
+                                                  }];
+    [gPreviewPlayer play];
+}
+
+static void FVUpdatePreviewOverlay(CALayer *previewLayer) {
+    if (previewLayer == nil) {
+        return;
+    }
+
+    if (!gCameraActive || !FVHasSelectedVideo()) {
+        [gPreviewPlayer pause];
+        gPreviewPlayerLayer.hidden = YES;
+        return;
+    }
+
+    FVEnsurePreviewPlayer();
+    if (gPreviewPlayerLayer == nil) {
+        return;
+    }
+
+    gPreviewPlayerLayer.hidden = NO;
+    gPreviewPlayerLayer.frame = previewLayer.bounds;
+    if (gPreviewPlayerLayer.superlayer != previewLayer) {
+        [gPreviewPlayerLayer removeFromSuperlayer];
+        [previewLayer addSublayer:gPreviewPlayerLayer];
+    }
+    [gPreviewPlayer play];
 }
 
 static void FVShowVideoList(void) {
@@ -156,7 +221,7 @@ static void FVShowMainMenu(void) {
         }
 
         UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"FrontVCam"
-                                                                       message:@"Thay camera truoc bang MP4"
+                                                                       message:@"Thay camera bang MP4"
                                                                 preferredStyle:UIAlertControllerStyleActionSheet];
         [alert addAction:[UIAlertAction actionWithTitle:@"Chon video"
                                                   style:UIAlertActionStyleDefault
@@ -171,6 +236,9 @@ static void FVShowMainMenu(void) {
                                                 handler:^(__unused UIAlertAction *action) {
                                                     [NSFileManager.defaultManager removeItemAtPath:FVSelectedVideoPath error:nil];
                                                     gReloadVideo = YES;
+                                                    gPreviewVideoPath = nil;
+                                                    [gPreviewPlayer pause];
+                                                    gPreviewPlayerLayer.hidden = YES;
                                                 }]];
         [alert addAction:[UIAlertAction actionWithTitle:@"Huy"
                                                   style:UIAlertActionStyleCancel
@@ -221,7 +289,7 @@ static void FVShowMainMenu(void) {
     static AVAssetReader *reader = nil;
     static AVAssetReaderTrackOutput *output = nil;
 
-    if (!gFrontCameraActive || sampleBuffer == nil ||
+    if (!gCameraActive || sampleBuffer == nil ||
         ![NSFileManager.defaultManager fileExistsAtPath:FVSelectedVideoPath]) {
         return nil;
     }
@@ -276,7 +344,7 @@ static void FVShowMainMenu(void) {
     if ([input isKindOfClass:%c(AVCaptureDeviceInput)]) {
         AVCaptureDevice *device = [(AVCaptureDeviceInput *)input device];
         if ([device hasMediaType:AVMediaTypeVideo]) {
-            gFrontCameraActive = device.position == AVCaptureDevicePositionFront;
+            gCameraActive = YES;
             gReloadVideo = YES;
         }
     }
@@ -285,8 +353,23 @@ static void FVShowMainMenu(void) {
 }
 
 - (void)startRunning {
+    gCameraActive = YES;
     gReloadVideo = YES;
     %orig;
+}
+
+%end
+
+%hook AVCaptureVideoPreviewLayer
+
+- (void)layoutSublayers {
+    %orig;
+    FVUpdatePreviewOverlay((CALayer *)self);
+}
+
+- (void)setFrame:(CGRect)frame {
+    %orig;
+    FVUpdatePreviewOverlay((CALayer *)self);
 }
 
 %end
