@@ -1,3 +1,31 @@
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/roothide/theos/master/bin/install-theos)"
-export THEOS=$HOME/theos
-make clean package THEOS_PACKAGE_SCHEME=roothide
+name: Build FrontVCam
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install roothide Theos
+        run: |
+          bash -c "$(curl -fsSL https://raw.githubusercontent.com/roothide/theos/master/bin/install-theos)"
+
+      - name: Build package
+        run: |
+          export THEOS="$HOME/theos"
+          make clean package THEOS_PACKAGE_SCHEME=roothide
+
+      - name: Upload deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontvcam-deb
+          path: packages/*.deb
