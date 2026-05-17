@@ -1,0 +1,3 @@
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/roothide/theos/master/bin/install-theos)"
+export THEOS=$HOME/theos
+make clean package THEOS_PACKAGE_SCHEME=roothide
