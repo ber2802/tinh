@@ -1,0 +1,9 @@
+Package: com.codex.frontvcam
+Name: FrontVCam
+Version: 0.1.0
+Architecture: iphoneos-arm64
+Description: Replace front camera sample buffers with a local video or still image.
+Maintainer: Local Build <local@example.com>
+Author: Local Build <local@example.com>
+Section: Tweaks
+Depends: mobilesubstrate, firmware (>= 15.0)
